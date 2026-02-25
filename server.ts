@@ -2,6 +2,7 @@ import "./serverEnv";
 
 import crypto from "crypto";
 import path from "path";
+import { fileURLToPath } from "url";
 import express from "express";
 import cors from "cors";
 import { createServer as createViteServer } from "vite";
@@ -11,6 +12,7 @@ import db from "./db";
 type UserRole = "user" | "admin";
 type OrderStatus = "new" | "cooking" | "delivering" | "completed" | "cancelled";
 type PaymentMethod = "cash" | "card" | "click" | "payme";
+type PaymentStatus = "pending" | "paid" | "failed" | "cash_on_delivery";
 type RateLimitBucket = { count: number; resetAt: number };
 type RateLimitOptions = {
   windowMs: number;
@@ -37,6 +39,16 @@ type Address = {
 };
 
 type OrderItem = {
+  id: string;
+  name: string;
+  price: number;
+  quantity: number;
+  category?: string;
+  image?: string;
+  description?: string;
+};
+
+type CartItem = {
   id: string;
   name: string;
   price: number;
@@ -100,6 +112,7 @@ const TELEGRAM_WEBHOOK_SECRET = cleanString(process.env.TELEGRAM_WEBHOOK_SECRET,
 const TELEGRAM_MINI_APP_URL = cleanString(process.env.TELEGRAM_MINI_APP_URL, 700) ?? inferMiniAppUrl(TELEGRAM_WEBHOOK_URL);
 const TELEGRAM_ADMIN_CHAT_ID = cleanString(process.env.TELEGRAM_ADMIN_CHAT_ID, 80);
 const TELEGRAM_INIT_DATA_MAX_AGE_SECONDS = Math.max(60, Number(process.env.TELEGRAM_INIT_DATA_MAX_AGE_SECONDS ?? 86_400));
+const PAYNET_CALLBACK_SECRET = cleanString(process.env.PAYNET_CALLBACK_SECRET, 200);
 const TELEGRAM_BOT_WELCOME =
   "Assalomu alaykum! KFC Ovozli Buyurtma botiga xush kelibsiz.\nPastdagi tugma orqali Mini App'ni ochib buyurtma bering.";
 
@@ -193,7 +206,10 @@ async function sendTelegramMessage(chatId: TelegramChatId, text: string, extra?:
 function getMiniAppKeyboard() {
   if (!TELEGRAM_MINI_APP_URL) return null;
   return {
-    inline_keyboard: [[{ text: "Mini App ochish", web_app: { url: TELEGRAM_MINI_APP_URL } }]],
+    inline_keyboard: [
+      [{ text: "Mini App ochish", web_app: { url: TELEGRAM_MINI_APP_URL } }],
+      [{ text: "Saytni ochish", url: TELEGRAM_MINI_APP_URL }],
+    ],
   };
 }
 
@@ -204,7 +220,7 @@ function parseTelegramWebAppData(raw: string | undefined) {
       order_id?: string;
       total?: number;
       payment?: string;
-      customer?: { phone?: string; location?: { addressName?: string } };
+      customer?: { name?: string; phone?: string; location?: { addressName?: string } };
       items?: Array<{ name?: string; qty?: number; price?: number }>;
     };
   } catch {
@@ -258,13 +274,18 @@ function verifyTelegramInitData(rawInitData: string | null): { user: TelegramWeb
 
 function buildOrderNotificationText(order: {
   id?: string;
+  customerName?: string;
   total?: number;
   paymentMethod?: string;
   customerPhone?: string;
   addressName?: string;
   items?: Array<{ name: string; quantity: number; price: number }>;
 }) {
-  const lines = ["Yangi buyurtma!", `ID: ${order.id ?? "-"}`, `Telefon: ${order.customerPhone ?? "-"}`];
+  const lines = ["Yangi buyurtma!", `Mijoz: ${order.customerName ?? "-"}`, `Telefon: ${order.customerPhone ?? "-"}`];
+
+  if (order.id) {
+    lines.push(`ID: ${order.id}`);
+  }
 
   if (typeof order.total === "number") {
     lines.push(`Jami: ${order.total.toLocaleString("ru-RU")} so'm`);
@@ -287,6 +308,7 @@ function buildOrderNotificationText(order: {
 
 async function notifyTelegramAdminOrder(order: {
   id: string;
+  customerName: string;
   total: number;
   paymentMethod: string;
   customerPhone: string;
@@ -308,14 +330,20 @@ async function handleTelegramMessage(message: TelegramMessage) {
 
   if (message.web_app_data?.data) {
     const webAppPayload = parseTelegramWebAppData(message.web_app_data.data);
-    const orderId = webAppPayload?.order_id ?? "-";
-    await sendTelegramMessage(message.chat.id, `Buyurtma ma'lumoti qabul qilindi. ID: ${orderId}`);
+    const customerName = cleanString(webAppPayload?.customer?.name, 80);
+    await sendTelegramMessage(
+      message.chat.id,
+      customerName
+        ? `Buyurtma qabul qilindi. Rahmat, ${customerName}!`
+        : "Buyurtma ma'lumoti qabul qilindi."
+    );
 
     if (TELEGRAM_ADMIN_CHAT_ID && TELEGRAM_ADMIN_CHAT_ID !== String(message.chat.id)) {
       await sendTelegramMessage(
         TELEGRAM_ADMIN_CHAT_ID,
         buildOrderNotificationText({
           id: webAppPayload?.order_id,
+          customerName: customerName ?? undefined,
           total: typeof webAppPayload?.total === "number" ? webAppPayload.total : undefined,
           paymentMethod: webAppPayload?.payment,
           customerPhone: webAppPayload?.customer?.phone,
@@ -635,6 +663,106 @@ function parseOrderItems(raw: unknown): OrderItem[] | null {
   return parsed;
 }
 
+function parseCartQuantity(raw: unknown, allowZero = false): number | null {
+  const quantity = Number(raw);
+  if (!Number.isInteger(quantity)) return null;
+  if (allowZero) {
+    if (quantity < 0 || quantity > 99) return null;
+    return quantity;
+  }
+  if (quantity <= 0 || quantity > 99) return null;
+  return quantity;
+}
+
+function formatCartRow(row: Record<string, unknown>): CartItem {
+  return {
+    id: String(row.productId ?? ""),
+    name: String(row.name ?? ""),
+    price: Number(row.price ?? 0),
+    quantity: Number(row.quantity ?? 0),
+    ...(cleanString(row.category, 60) ? { category: cleanString(row.category, 60)! } : {}),
+    ...(cleanString(row.image, 800) ? { image: cleanString(row.image, 800)! } : {}),
+    ...(cleanString(row.description, 800) ? { description: cleanString(row.description, 800)! } : {}),
+  };
+}
+
+function getCartItemsByPhone(phone: string): CartItem[] {
+  const rows = db
+    .prepare(
+      "SELECT productId, name, price, category, image, description, quantity FROM carts WHERE customerPhone = ? ORDER BY updatedAt DESC"
+    )
+    .all(phone) as Record<string, unknown>[];
+  return rows.map(formatCartRow).filter((item) => item.id && item.name && item.quantity > 0);
+}
+
+function getDefaultPaymentStatus(paymentMethod: PaymentMethod): PaymentStatus {
+  if (paymentMethod === "cash") return "cash_on_delivery";
+  return "pending";
+}
+
+function parsePaymentStatus(raw: unknown): PaymentStatus | null {
+  const value = cleanString(raw, 40)?.toLowerCase();
+  if (!value) return null;
+  if (value === "pending" || value === "paid" || value === "failed" || value === "cash_on_delivery") {
+    return value;
+  }
+  return null;
+}
+
+function parsePaymentCallbackStatus(raw: unknown): PaymentStatus | null {
+  if (typeof raw === "boolean") return raw ? "paid" : "failed";
+  if (typeof raw === "number") {
+    if (raw === 1) return "paid";
+    if (raw === 0 || raw < 0) return "failed";
+    return "pending";
+  }
+
+  const value = cleanString(raw, 120)?.toLowerCase();
+  if (!value) return null;
+
+  const paidTokens = ["paid", "success", "succeeded", "approved", "completed", "ok", "done", "1", "true"];
+  const failedTokens = ["failed", "error", "declined", "cancelled", "canceled", "rejected", "0", "false"];
+  const pendingTokens = ["pending", "processing", "in_progress", "wait", "waiting"];
+
+  if (paidTokens.some((token) => value === token || value.includes(token))) return "paid";
+  if (failedTokens.some((token) => value === token || value.includes(token))) return "failed";
+  if (pendingTokens.some((token) => value === token || value.includes(token))) return "pending";
+  return null;
+}
+
+function parsePaynetCallbackPayload(raw: unknown): {
+  orderId: string | null;
+  providerTxnId: string | null;
+  status: PaymentStatus | null;
+} {
+  const body = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+
+  const orderId =
+    cleanString(body.order_id, 100) ??
+    cleanString(body.orderId, 100) ??
+    cleanString(body.merchant_order_id, 100) ??
+    cleanString(body.merchantOrderId, 100) ??
+    cleanString(body.id, 100) ??
+    null;
+
+  const providerTxnId =
+    cleanString(body.txn_id, 120) ??
+    cleanString(body.transaction_id, 120) ??
+    cleanString(body.providerTxnId, 120) ??
+    cleanString(body.payment_id, 120) ??
+    null;
+
+  const status =
+    parsePaymentCallbackStatus(body.status) ??
+    parsePaymentCallbackStatus(body.state) ??
+    parsePaymentCallbackStatus(body.result) ??
+    parsePaymentCallbackStatus(body.success) ??
+    parsePaymentCallbackStatus(body.paid) ??
+    null;
+
+  return { orderId, providerTxnId, status };
+}
+
 function parsePaymentMethod(raw: unknown): PaymentMethod | null {
   const value = cleanString(raw, 20);
   if (!value) return null;
@@ -663,12 +791,17 @@ function formatOrderRow(row: Record<string, unknown>) {
     id: String(row.id ?? ""),
     customer: {
       phone: String(row.customerPhone ?? ""),
+      name: String(row.customerName ?? ""),
       location: safeJsonParse(row.customerLocation, null),
     },
     items: safeJsonParse<OrderItem[]>(row.items, []),
     total: Number(row.total ?? 0),
     status: String(row.status ?? "new"),
     paymentMethod: String(row.paymentMethod ?? "card"),
+    paymentStatus: String(row.paymentStatus ?? "pending"),
+    paymentProvider: row.paymentProvider ? String(row.paymentProvider) : null,
+    providerTxnId: row.providerTxnId ? String(row.providerTxnId) : null,
+    paidAt: row.paidAt ? String(row.paidAt) : null,
     timestamp: row.timestamp,
   };
 }
@@ -706,13 +839,36 @@ function buildAuthenticatedSession(phone: string, name: string, providedAdminCod
   };
 }
 
-async function startServer() {
+export async function startServer() {
   const app = express();
   const parsedPort = Number(process.env.PORT);
   const PORT = Number.isFinite(parsedPort) && parsedPort > 0 ? parsedPort : DEFAULT_PORT;
 
   app.use(cors());
   app.use(express.json({ limit: "1mb" }));
+
+  app.use((req, res, next) => {
+    const startedAt = Date.now();
+    const requestId = crypto.randomUUID();
+    res.setHeader("x-request-id", requestId);
+
+    res.on("finish", () => {
+      const durationMs = Date.now() - startedAt;
+      const payload = {
+        level: "info",
+        type: "http_request",
+        requestId,
+        method: req.method,
+        path: req.originalUrl,
+        status: res.statusCode,
+        durationMs,
+        ip: req.ip ?? "unknown",
+      };
+      console.log(JSON.stringify(payload));
+    });
+
+    next();
+  });
 
   const loginRateLimit = createRateLimiter({
     windowMs: 15 * 60 * 1000,
@@ -735,6 +891,28 @@ async function startServer() {
       const authReq = req as AuthenticatedRequest;
       return authReq.auth?.phone ?? req.ip ?? "unknown";
     },
+  });
+
+  app.get("/api/health", (_req, res) => {
+    let dbOk = true;
+    try {
+      db.prepare("SELECT 1 AS ok").get();
+    } catch {
+      dbOk = false;
+    }
+
+    const payload = {
+      status: dbOk ? "ok" : "degraded",
+      timestamp: new Date().toISOString(),
+      uptimeSeconds: Math.floor(process.uptime()),
+      services: {
+        db: dbOk ? "ok" : "error",
+        telegramBot: TELEGRAM_BOT_TOKEN ? "configured" : "disabled",
+        gemini: liveAiClient ? "configured" : "disabled",
+      },
+    };
+
+    res.status(dbOk ? 200 : 503).json(payload);
   });
 
   app.post("/api/telegram/webhook", async (req, res) => {
@@ -881,6 +1059,123 @@ async function startServer() {
     res.json({ success: true });
   });
 
+  app.get("/api/cart", requireAuth, (req: AuthenticatedRequest, res) => {
+    const items = getCartItemsByPhone(req.auth!.phone);
+    res.json({ items });
+  });
+
+  app.post("/api/cart/items", requireAuth, (req: AuthenticatedRequest, res) => {
+    const productId = cleanString(req.body?.productId, 64) ?? cleanString(req.body?.id, 64);
+    const quantity = parseCartQuantity(req.body?.quantity ?? 1);
+
+    if (!productId || quantity === null) {
+      res.status(400).json({ error: "Mahsulot yoki miqdor noto'g'ri." });
+      return;
+    }
+
+    const menuItem = db.prepare("SELECT * FROM menu WHERE id = ?").get(productId) as Record<string, unknown> | undefined;
+    if (!menuItem) {
+      res.status(404).json({ error: "Mahsulot topilmadi." });
+      return;
+    }
+
+    const existing = db
+      .prepare("SELECT quantity FROM carts WHERE customerPhone = ? AND productId = ?")
+      .get(req.auth!.phone, productId) as { quantity?: number } | undefined;
+    const nextQuantity = Math.min(99, (Number(existing?.quantity ?? 0) || 0) + quantity);
+
+    db.prepare(
+      `INSERT INTO carts (customerPhone, productId, name, price, category, image, description, quantity, createdAt, updatedAt)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+       ON CONFLICT(customerPhone, productId) DO UPDATE SET
+         name = excluded.name,
+         price = excluded.price,
+         category = excluded.category,
+         image = excluded.image,
+         description = excluded.description,
+         quantity = excluded.quantity,
+         updatedAt = CURRENT_TIMESTAMP`
+    ).run(
+      req.auth!.phone,
+      productId,
+      String(menuItem.name ?? ""),
+      Number(menuItem.price ?? 0),
+      String(menuItem.category ?? ""),
+      String(menuItem.image ?? ""),
+      String(menuItem.description ?? ""),
+      nextQuantity
+    );
+
+    const items = getCartItemsByPhone(req.auth!.phone);
+    res.status(201).json({ success: true, items });
+  });
+
+  app.patch("/api/cart/items/:productId", requireAuth, (req: AuthenticatedRequest, res) => {
+    const productId = cleanString(req.params.productId, 64);
+    const delta = Number(req.body?.delta);
+    if (!productId || !Number.isInteger(delta) || delta === 0 || Math.abs(delta) > 99) {
+      res.status(400).json({ error: "Miqdor o'zgarishi noto'g'ri." });
+      return;
+    }
+
+    const existing = db
+      .prepare("SELECT quantity FROM carts WHERE customerPhone = ? AND productId = ?")
+      .get(req.auth!.phone, productId) as { quantity?: number } | undefined;
+    if (!existing || !Number.isInteger(existing.quantity)) {
+      res.status(404).json({ error: "Mahsulot savatda topilmadi." });
+      return;
+    }
+
+    const nextQuantity = Number(existing.quantity) + delta;
+    if (nextQuantity <= 0) {
+      db.prepare("DELETE FROM carts WHERE customerPhone = ? AND productId = ?").run(req.auth!.phone, productId);
+      res.json({ success: true, items: getCartItemsByPhone(req.auth!.phone) });
+      return;
+    }
+
+    const cappedQuantity = Math.min(99, nextQuantity);
+    const menuItem = db.prepare("SELECT * FROM menu WHERE id = ?").get(productId) as Record<string, unknown> | undefined;
+
+    if (menuItem) {
+      db.prepare(
+        "UPDATE carts SET quantity = ?, name = ?, price = ?, category = ?, image = ?, description = ?, updatedAt = CURRENT_TIMESTAMP WHERE customerPhone = ? AND productId = ?"
+      ).run(
+        cappedQuantity,
+        String(menuItem.name ?? ""),
+        Number(menuItem.price ?? 0),
+        String(menuItem.category ?? ""),
+        String(menuItem.image ?? ""),
+        String(menuItem.description ?? ""),
+        req.auth!.phone,
+        productId
+      );
+    } else {
+      db.prepare("UPDATE carts SET quantity = ?, updatedAt = CURRENT_TIMESTAMP WHERE customerPhone = ? AND productId = ?").run(
+        cappedQuantity,
+        req.auth!.phone,
+        productId
+      );
+    }
+
+    res.json({ success: true, items: getCartItemsByPhone(req.auth!.phone) });
+  });
+
+  app.delete("/api/cart/items/:productId", requireAuth, (req: AuthenticatedRequest, res) => {
+    const productId = cleanString(req.params.productId, 64);
+    if (!productId) {
+      res.status(400).json({ error: "Mahsulot ID noto'g'ri." });
+      return;
+    }
+
+    db.prepare("DELETE FROM carts WHERE customerPhone = ? AND productId = ?").run(req.auth!.phone, productId);
+    res.json({ success: true, items: getCartItemsByPhone(req.auth!.phone) });
+  });
+
+  app.delete("/api/cart", requireAuth, (req: AuthenticatedRequest, res) => {
+    db.prepare("DELETE FROM carts WHERE customerPhone = ?").run(req.auth!.phone);
+    res.json({ success: true, items: [] });
+  });
+
   app.get("/api/orders", requireAuth, requireAdmin, (_req, res) => {
     const rows = db.prepare("SELECT * FROM orders ORDER BY timestamp DESC").all() as Record<string, unknown>[];
     res.json(rows.map(formatOrderRow));
@@ -895,12 +1190,15 @@ async function startServer() {
 
   app.post("/api/orders", requireAuth, (req: AuthenticatedRequest, res) => {
     const customer = req.body?.customer;
-    const customerPhone = normalizePhone(customer?.phone);
+    const customerPhoneInput = cleanString(customer?.phone, 80);
     const customerLocation = parseAddress(customer?.location);
-    const items = parseOrderItems(req.body?.items);
+    const cartItems = getCartItemsByPhone(req.auth!.phone);
+    const bodyItems = parseOrderItems(req.body?.items);
+    const items = cartItems.length > 0 ? cartItems : bodyItems;
     const paymentMethod = parsePaymentMethod(req.body?.paymentMethod) ?? "card";
+    const paymentStatus = getDefaultPaymentStatus(paymentMethod);
 
-    if (!customerPhone || customerPhone !== req.auth!.phone) {
+    if (!customerPhoneInput || customerPhoneInput !== req.auth!.phone) {
       res.status(403).json({ error: "Telefon raqami sessiya bilan mos emas." });
       return;
     }
@@ -918,14 +1216,32 @@ async function startServer() {
     const total = Number.isInteger(requestedTotal) && requestedTotal >= itemsTotal ? requestedTotal : itemsTotal;
     const id = crypto.randomUUID();
     const status: OrderStatus = "new";
+    const customerPhone = req.auth!.phone;
+    const userRow = db.prepare("SELECT name FROM users WHERE phone = ?").get(customerPhone) as { name?: string } | undefined;
+    const customerName = normalizeName(userRow?.name ?? customer?.name);
 
     db.prepare(
-      "INSERT INTO orders (id, customerPhone, customerLocation, items, total, status, paymentMethod) VALUES (?, ?, ?, ?, ?, ?, ?)"
-    ).run(id, customerPhone, JSON.stringify(customerLocation), JSON.stringify(items), total, status, paymentMethod);
+      "INSERT INTO orders (id, customerPhone, customerName, customerLocation, items, total, status, paymentMethod, paymentStatus, paymentProvider) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    ).run(
+      id,
+      customerPhone,
+      customerName,
+      JSON.stringify(customerLocation),
+      JSON.stringify(items),
+      total,
+      status,
+      paymentMethod,
+      paymentStatus,
+      paymentMethod === "card" ? "paynet" : paymentMethod
+    );
+
+    // Order created successfully, clear server-side cart for this user.
+    db.prepare("DELETE FROM carts WHERE customerPhone = ?").run(customerPhone);
 
     const row = db.prepare("SELECT * FROM orders WHERE id = ?").get(id) as Record<string, unknown>;
     void notifyTelegramAdminOrder({
       id,
+      customerName,
       total,
       paymentMethod,
       customerPhone,
@@ -949,6 +1265,50 @@ async function startServer() {
       return;
     }
     res.json({ success: true });
+  });
+
+  app.post("/api/payment/paynet/callback", (req, res) => {
+    if (PAYNET_CALLBACK_SECRET) {
+      const headerSecretRaw = req.headers["x-paynet-callback-secret"];
+      const headerSecret = Array.isArray(headerSecretRaw) ? cleanString(headerSecretRaw[0], 200) : cleanString(headerSecretRaw, 200);
+      const bodySecret = cleanString(req.body?.secret, 200);
+      const querySecret = cleanString(req.query?.secret, 200);
+
+      if (headerSecret !== PAYNET_CALLBACK_SECRET && bodySecret !== PAYNET_CALLBACK_SECRET && querySecret !== PAYNET_CALLBACK_SECRET) {
+        res.status(401).json({ error: "Paynet callback secret noto'g'ri." });
+        return;
+      }
+    }
+
+    const callback = parsePaynetCallbackPayload(req.body);
+    if (!callback.orderId) {
+      res.status(400).json({ error: "order_id topilmadi." });
+      return;
+    }
+
+    const paymentStatus = callback.status ?? "pending";
+    const existingOrder = db.prepare("SELECT id FROM orders WHERE id = ?").get(callback.orderId) as { id?: string } | undefined;
+    if (!existingOrder?.id) {
+      res.status(404).json({ error: "Buyurtma topilmadi." });
+      return;
+    }
+
+    const rawPayload = JSON.stringify(req.body ?? {});
+    if (paymentStatus === "paid") {
+      db.prepare(
+        `UPDATE orders
+         SET paymentStatus = ?, paymentProvider = ?, providerTxnId = COALESCE(?, providerTxnId), paidAt = COALESCE(paidAt, CURRENT_TIMESTAMP), paymentRaw = ?
+         WHERE id = ?`
+      ).run(paymentStatus, "paynet", callback.providerTxnId, rawPayload, callback.orderId);
+    } else {
+      db.prepare(
+        `UPDATE orders
+         SET paymentStatus = ?, paymentProvider = ?, providerTxnId = COALESCE(?, providerTxnId), paymentRaw = ?
+         WHERE id = ?`
+      ).run(paymentStatus, "paynet", callback.providerTxnId, rawPayload, callback.orderId);
+    }
+
+    res.json({ success: true, orderId: callback.orderId, paymentStatus });
   });
 
   app.get("/api/knowledge", requireAuth, (_req, res) => {
@@ -1140,24 +1500,44 @@ async function startServer() {
     res.status(500).json({ error: err?.message ?? "Kutilmagan server xatoligi." });
   });
 
-  app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on http://localhost:${PORT}`);
+  return await new Promise<import("http").Server>((resolve) => {
+    const server = app.listen(PORT, "0.0.0.0", () => {
+      console.log(`Server running on http://localhost:${PORT}`);
 
-    if (!TELEGRAM_BOT_TOKEN) {
-      console.log("[telegram] Bot o'chirilgan (TELEGRAM_BOT_TOKEN yo'q).");
-      return;
-    }
+      if (!TELEGRAM_BOT_TOKEN) {
+        console.log("[telegram] Bot o'chirilgan (TELEGRAM_BOT_TOKEN yo'q).");
+        resolve(server);
+        return;
+      }
 
-    if (!TELEGRAM_MINI_APP_URL) {
-      console.warn("[telegram] TELEGRAM_MINI_APP_URL berilmagan. /start tugmasi ko'rinmasligi mumkin.");
-    }
+      if (!TELEGRAM_MINI_APP_URL) {
+        console.warn("[telegram] TELEGRAM_MINI_APP_URL berilmagan. /start tugmasi ko'rinmasligi mumkin.");
+      }
 
-    if (TELEGRAM_WEBHOOK_URL) {
-      void startTelegramWebhook();
-    } else {
-      void startTelegramPolling();
-    }
+      if (TELEGRAM_WEBHOOK_URL) {
+        void startTelegramWebhook();
+      } else {
+        void startTelegramPolling();
+      }
+
+      resolve(server);
+    });
+
+    server.on("close", () => {
+      telegramPollingStarted = false;
+      try {
+        db.close();
+      } catch {
+        // no-op
+      }
+    });
   });
 }
 
-startServer();
+const isDirectRun = process.argv[1] ? path.resolve(process.argv[1]) === fileURLToPath(import.meta.url) : false;
+if (isDirectRun) {
+  startServer().catch((error) => {
+    console.error("Serverni ishga tushirib bo'lmadi:", error);
+    process.exitCode = 1;
+  });
+}

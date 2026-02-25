@@ -42,6 +42,7 @@ export enum ConnectionState {
 
 export type OrderStatus = 'new' | 'cooking' | 'delivering' | 'completed' | 'cancelled';
 export type PaymentMethod = 'cash' | 'card' | 'click' | 'payme';
+export type PaymentStatus = 'pending' | 'paid' | 'failed' | 'cash_on_delivery';
 
 export interface Address {
   lat: number;
@@ -66,12 +67,17 @@ export interface Order {
   id: string;
   customer: {
     phone: string;
+    name?: string;
     location: Address;
   };
   items: CartItem[];
   total: number;
   status: OrderStatus;
   paymentMethod: PaymentMethod;
+  paymentStatus?: PaymentStatus;
+  paymentProvider?: string | null;
+  providerTxnId?: string | null;
+  paidAt?: string | null;
   timestamp: Date;
 }
 

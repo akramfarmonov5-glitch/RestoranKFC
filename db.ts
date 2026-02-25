@@ -29,12 +29,32 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS orders (
     id TEXT PRIMARY KEY,
     customerPhone TEXT,
+    customerName TEXT,
     customerLocation TEXT,
     items TEXT,
     total INTEGER,
     status TEXT,
     paymentMethod TEXT,
+    paymentStatus TEXT DEFAULT 'pending',
+    paymentProvider TEXT,
+    providerTxnId TEXT,
+    paidAt DATETIME,
+    paymentRaw TEXT,
     timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
+  CREATE TABLE IF NOT EXISTS carts (
+    customerPhone TEXT NOT NULL,
+    productId TEXT NOT NULL,
+    name TEXT NOT NULL,
+    price INTEGER NOT NULL,
+    category TEXT,
+    image TEXT,
+    description TEXT,
+    quantity INTEGER NOT NULL DEFAULT 1,
+    createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (customerPhone, productId)
   );
 
   CREATE TABLE IF NOT EXISTS knowledge (
@@ -55,6 +75,27 @@ db.exec(`
     name TEXT,
     icon TEXT
   );
+`);
+
+function ensureTableColumn(tableName: string, columnName: string, columnDefinition: string): void {
+  const rows = db.prepare(`PRAGMA table_info(${tableName})`).all() as Array<{ name?: string }>;
+  const hasColumn = rows.some((row) => row.name === columnName);
+  if (hasColumn) return;
+  db.prepare(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${columnDefinition}`).run();
+}
+
+// Backward-compatible migration for existing databases.
+ensureTableColumn('orders', 'customerName', 'TEXT');
+ensureTableColumn('orders', 'paymentStatus', "TEXT DEFAULT 'pending'");
+ensureTableColumn('orders', 'paymentProvider', 'TEXT');
+ensureTableColumn('orders', 'providerTxnId', 'TEXT');
+ensureTableColumn('orders', 'paidAt', 'DATETIME');
+ensureTableColumn('orders', 'paymentRaw', 'TEXT');
+
+db.exec(`
+  CREATE INDEX IF NOT EXISTS idx_orders_customer_phone ON orders(customerPhone);
+  CREATE INDEX IF NOT EXISTS idx_orders_payment_status ON orders(paymentStatus);
+  CREATE INDEX IF NOT EXISTS idx_carts_customer_phone ON carts(customerPhone);
 `);
 
 const defaultKnowledgeBase = `

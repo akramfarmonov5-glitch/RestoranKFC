@@ -71,10 +71,15 @@ export const AdminProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         setOrders(toOrders(fetchedOrders));
       }
 
-      const kbRes = await authFetch('/api/knowledge');
-      if (kbRes.ok) {
-        const kbData = await kbRes.json();
-        setKnowledgeBase(kbData.content ?? '');
+      // Knowledge base is mostly needed for admin editing and LiveAgent runtime fetch.
+      if (isAdmin) {
+        const kbRes = await authFetch('/api/knowledge');
+        if (kbRes.ok) {
+          const kbData = await kbRes.json();
+          setKnowledgeBase(kbData.content ?? '');
+        }
+      } else {
+        setKnowledgeBase('');
       }
     } catch (error) {
       console.error('Failed to fetch app data', error);

@@ -87,10 +87,11 @@ const AdminOrders: React.FC = () => {
                 <div className="flex justify-between items-start mb-4">
                   <div className="flex items-center gap-3">
                     <div className="w-10 h-10 rounded-full bg-slate-50 flex items-center justify-center font-bold text-slate-700 border border-slate-200">
-                      #{order.id.slice(-4)}
+                      {(order.customer.name?.trim()?.charAt(0) || order.customer.phone.charAt(0) || '#').toUpperCase()}
                     </div>
                     <div>
-                       <p className="font-bold text-sm text-slate-900">{order.customer.phone}</p>
+                       <p className="font-bold text-sm text-slate-900">{order.customer.name || "Mijoz"}</p>
+                       <p className="text-[10px] text-slate-400 font-medium uppercase">{order.customer.phone}</p>
                        <p className="text-[10px] text-slate-400 font-medium uppercase">{order.timestamp.toLocaleTimeString()}</p>
                     </div>
                   </div>

@@ -68,6 +68,7 @@ const CartPage: React.FC = () => {
       id: '',
       customer: {
         phone: user.phone,
+        name: user.name,
         location: updatedAddress
       },
       items: [...cartItems],
@@ -83,7 +84,7 @@ const CartPage: React.FC = () => {
 
       const telegramData = {
         order_id: createdOrder.id,
-        customer: { phone: user.phone, location: updatedAddress },
+        customer: { name: user.name, phone: user.phone, location: updatedAddress },
         items: cartItems.map(i => ({ name: i.name, price: i.price, qty: i.quantity })),
         total: finalTotal,
         payment: paymentMethod
@@ -99,7 +100,7 @@ const CartPage: React.FC = () => {
       
       setStep('success');
       setTimeout(() => {
-          clearCart();
+          void clearCart();
           setStep('cart');
       }, 3000);
     } catch (checkoutError: any) {
@@ -266,11 +267,11 @@ const CartPage: React.FC = () => {
               </div>
               <div className="flex flex-col items-end gap-3">
                  <div className="flex items-center gap-3 bg-slate-50 rounded-lg p-1 border border-slate-200">
-                    <button onClick={() => removeFromCart(item.id, 1)} className="p-1.5 hover:bg-white rounded-md transition-colors">
+                    <button onClick={() => { void removeFromCart(item.id, 1); }} className="p-1.5 hover:bg-white rounded-md transition-colors">
                       {item.quantity === 1 ? <Trash2 size={16} className="text-red-500" /> : <Minus size={16} className="text-slate-600" />}
                     </button>
                     <span className="text-sm font-bold w-4 text-center">{item.quantity}</span>
-                    <button onClick={() => addToCart(item, 1)} className="p-1.5 hover:bg-white rounded-md transition-colors">
+                    <button onClick={() => { void addToCart(item, 1); }} className="p-1.5 hover:bg-white rounded-md transition-colors">
                       <Plus size={16} className="text-slate-600" />
                     </button>
                  </div>

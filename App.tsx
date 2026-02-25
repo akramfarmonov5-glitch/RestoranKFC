@@ -65,7 +65,7 @@ const ProfilePage = () => {
              userOrders.map(order => (
                <div key={order.id} className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm">
                  <div className="flex justify-between items-center mb-2">
-                   <span className="font-bold text-slate-900">#{order.id.slice(-4)}</span>
+                   <span className="font-bold text-slate-900">{order.customer.name || user?.name || 'Mijoz'}</span>
                    <span className={`text-[10px] px-2 py-1 rounded-full font-bold uppercase ${
                      order.status === 'completed' ? 'bg-green-100 text-green-700' :
                      order.status === 'cancelled' ? 'bg-red-100 text-red-700' :

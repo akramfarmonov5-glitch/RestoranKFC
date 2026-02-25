@@ -67,7 +67,9 @@ const MenuPage: React.FC = () => {
             <div className="flex items-center justify-between mt-3 pt-3 border-t border-slate-50">
               <span className="font-black text-slate-900 text-sm">{item.price.toLocaleString()} so'm</span>
               <button 
-                onClick={() => addToCart(item, 1)}
+                onClick={() => {
+                  void addToCart(item, 1);
+                }}
                 className="w-8 h-8 rounded-full bg-[#E4002B] text-white flex items-center justify-center active:scale-90 transition-transform shadow-md hover:bg-red-700"
               >
                 <Plus size={18} strokeWidth={3} />

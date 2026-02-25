@@ -19,6 +19,7 @@ View your app in AI Studio: https://ai.studio/apps/e3c0a154-99bb-4399-9038-f2b73
    - `GEMINI_API_KEY=...`
    - `SESSION_SECRET=...` (random long secret)
    - Optional: `ADMIN_CODE=...` and `ADMIN_PHONE=+998901234567`
+   - Optional: `PAYNET_CALLBACK_SECRET=...` (payment callback security)
    - Optional: `PORT=3000`
 3. Run development server:
    `npm run dev`
@@ -33,6 +34,7 @@ View your app in AI Studio: https://ai.studio/apps/e3c0a154-99bb-4399-9038-f2b73
 1. Create `.env` from `.env.example` and set at least:
    - `SESSION_SECRET=...`
    - `GEMINI_API_KEY=...` (optional if voice AI is not needed)
+   - Optional: `PAYNET_CALLBACK_SECRET=...` (for `/api/payment/paynet/callback`)
    - Optional: `HOST_PORT=3000` (change if 3000 band bo'lsa, masalan `HOST_PORT=3010`)
 2. Build and run container:
    - `docker compose up --build -d`
@@ -45,6 +47,13 @@ View your app in AI Studio: https://ai.studio/apps/e3c0a154-99bb-4399-9038-f2b73
 SQLite data is persisted in `./data/database.sqlite` via Docker volume mapping.
 
 If frontend is deployed separately (e.g. Vercel), set `VITE_API_BASE_URL=https://your-backend-domain` so `/api/*` calls go to your backend.
+
+## Monitoring and tests
+
+- Health check: `GET /api/health`
+- Server-side cart API: `/api/cart`
+- Payment callback API: `POST /api/payment/paynet/callback`
+- E2E test: `npm run test:e2e`
 
 ## Telegram Bot + Mini App
 
