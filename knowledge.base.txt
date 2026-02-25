@@ -1,0 +1,33 @@
+KFC Ovozli Yordamchi uchun Bilimlar Bazasi
+Ish vaqti: Har kuni 09:00 dan 23:00 gacha.
+Buyurtma qabul qilish: 22:45 gacha.
+Yetkazib berish xizmati: 09:30 dan 23:00 gacha.
+Yetkazib berish narxi: 12 000 so'm.
+Minimal buyurtma summasi: talab qilinmaydi.
+O'rtacha yetkazib berish vaqti: 30-50 daqiqa.
+Yuklama yuqori paytda yetkazib berish vaqti: 60-75 daqiqagacha.
+To'lov usullari: karta, naqd, Click, Payme.
+To'lov valyutasi: O'zbekiston so'mi.
+Mahsulotlar bo'yicha ma'lumot: narx va tarkib menyudagi kartochkada ko'rsatiladi.
+Aksiya va chegirmalar: faqat ilova ichidagi joriy aksiyalar amal qiladi.
+Promokod mavjud bo'lsa, buyurtma vaqtida qo'llaniladi.
+Halol sifati: asosiy tovuq mahsulotlari halol standartiga mos.
+Allergen ogohlantirish: mahsulot tarkibida glyuten, sut yoki tuxum bo'lishi mumkin.
+Achchiqlik darajasi: ayrim qanot va strips mahsulotlari achchiq bo'lishi mumkin.
+Menyu mavjudligi: ayrim mahsulotlar filial yoki vaqtga qarab tugab qolishi mumkin.
+Buyurtma holatlari: new, cooking, delivering, completed, cancelled.
+Buyurtmani bekor qilish: new holatida odatda bekor qilish mumkin.
+Buyurtma cooking holatiga o'tsa, bekor qilish kafolatlanmaydi.
+Noto'g'ri yoki chala buyurtma bo'lsa, darhol qo'llab-quvvatlashga murojaat qiling.
+Qayta to'lov yoki refund masalasi ichki tekshiruvdan keyin ko'rib chiqiladi.
+Yetkazib berish manzili aniq bo'lishi kerak: ko'cha, uy, mo'ljal.
+Podyezd, qavat va xonadon ma'lumotini kiritish tavsiya etiladi.
+Kuryer uchun izoh maydoniga qo'shimcha ko'rsatma yozish mumkin.
+Kontaktsiz yetkazib berish: izohda oldindan ko'rsatish mumkin.
+Wi-Fi paroli: kfc_guest_2024.
+Til qo'llab-quvvatlovi: O'zbek, Rus, Ingliz.
+Operatorga ulash: murakkab holatda foydalanuvchidan aniq telefon va buyurtma raqamini so'rang.
+Filial bo'yicha aniq manzil yoki ichki raqam kerak bo'lsa, admin ma'lumotini tekshiring.
+Sanitariya qoidasi: mahsulotlar belgilangan oziq-ovqat xavfsizligi talablari asosida tayyorlanadi.
+Mijoz savoli aniq bo'lmasa, qisqa aniqlashtiruvchi savol bering.
+Bilimlar bazasida ma'lumot topilmasa, taxminiy javob bermang.

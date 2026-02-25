@@ -1,0 +1,8 @@
+{
+  "name": "KFC - AI Delivery",
+  "description": "KFC O'zbekiston - Mazali tovuqlar va tezkor yetkazib berish.",
+  "requestFramePermissions": [
+    "microphone",
+    "geolocation"
+  ]
+}
