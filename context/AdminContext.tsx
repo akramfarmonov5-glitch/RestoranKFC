@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react';
 import { Order, Product, OrderStatus, Promotion, Category } from '../types';
 import { useAuth } from './AuthContext';
+import { apiUrl } from '../utils/api';
 
 interface AdminContextType {
   menuItems: Product[];
@@ -47,7 +48,11 @@ export const AdminProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
   const fetchData = useCallback(async () => {
     try {
-      const [menuRes, promoRes, catRes] = await Promise.all([fetch('/api/menu'), fetch('/api/promotions'), fetch('/api/categories')]);
+      const [menuRes, promoRes, catRes] = await Promise.all([
+        fetch(apiUrl('/api/menu')),
+        fetch(apiUrl('/api/promotions')),
+        fetch(apiUrl('/api/categories')),
+      ]);
 
       if (menuRes.ok) setMenuItems(await menuRes.json());
       if (promoRes.ok) setPromotions(await promoRes.json());

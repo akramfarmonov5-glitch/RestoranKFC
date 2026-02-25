@@ -44,6 +44,8 @@ View your app in AI Studio: https://ai.studio/apps/e3c0a154-99bb-4399-9038-f2b73
 
 SQLite data is persisted in `./data/database.sqlite` via Docker volume mapping.
 
+If frontend is deployed separately (e.g. Vercel), set `VITE_API_BASE_URL=https://your-backend-domain` so `/api/*` calls go to your backend.
+
 ## Telegram Bot + Mini App
 
 `server.ts` endi Telegram botni ham qo'llab-quvvatlaydi:

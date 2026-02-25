@@ -1,5 +1,6 @@
 ﻿import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react';
 import { User, Address } from '../types';
+import { apiUrl } from '../utils/api';
 
 type LoginResult = { ok: true } | { ok: false; error: string };
 
@@ -89,7 +90,14 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       const headers = new Headers(init.headers ?? {});
       if (token) headers.set('Authorization', `Bearer ${token}`);
 
-      const response = await fetch(input, { ...init, headers });
+      const requestInput =
+        typeof input === 'string'
+          ? apiUrl(input)
+          : input instanceof URL
+            ? apiUrl(input.toString())
+            : input;
+
+      const response = await fetch(requestInput, { ...init, headers });
 
       if (response.status === 401) {
         logout();
@@ -103,7 +111,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const login = useCallback(
     async (name: string, phone: string, adminCode?: string): Promise<LoginResult> => {
       try {
-        const res = await fetch('/api/auth/login', {
+        const res = await fetch(apiUrl('/api/auth/login'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ name, phone, adminCode }),
@@ -135,7 +143,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const loginWithTelegram = useCallback(
     async (initData: string, adminCode?: string): Promise<LoginResult> => {
       try {
-        const res = await fetch('/api/auth/telegram', {
+        const res = await fetch(apiUrl('/api/auth/telegram'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ initData, adminCode }),
@@ -210,4 +218,3 @@ export const useAuth = () => {
   if (!context) throw new Error('useAuth must be used within an AuthProvider');
   return context;
 };
-
