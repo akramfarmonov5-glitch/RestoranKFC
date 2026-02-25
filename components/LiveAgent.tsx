@@ -6,16 +6,13 @@ import { createBlob, decode, decodeAudioData } from '../utils/audio';
 import { ConnectionState, Message } from '../types';
 import { SYSTEM_INSTRUCTION } from '../constants';
 import Transcript from './Transcript';
-import { useCart } from '../context/CartContext';
 import { useAdmin } from '../context/AdminContext';
 import { useAuth } from '../context/AuthContext';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useLocation } from 'react-router-dom';
 
 const LiveAgent: React.FC = () => {
-  const { addToCart, removeFromCart, clearCart, getCartTotal, cartItems } = useCart();
-  const { findProductByName, menuItems, knowledgeBase } = useAdmin();
+  const { menuItems, knowledgeBase } = useAdmin();
   const { authFetch } = useAuth();
-  const navigate = useNavigate();
   const location = useLocation();
 
   const [connectionState, setConnectionState] = useState<ConnectionState>(ConnectionState.DISCONNECTED);
@@ -34,29 +31,6 @@ const LiveAgent: React.FC = () => {
   const streamRef = useRef<MediaStream | null>(null);
   const currentInputTranscription = useRef<string>('');
   const currentOutputTranscription = useRef<string>('');
-
-  // Use Ref to hold latest state/functions to avoid stale closures in callbacks
-  const stateRef = useRef({
-    cartItems,
-    addToCart,
-    removeFromCart,
-    clearCart,
-    getCartTotal,
-    findProductByName,
-    navigate
-  });
-
-  useEffect(() => {
-    stateRef.current = {
-      cartItems,
-      addToCart,
-      removeFromCart,
-      clearCart,
-      getCartTotal,
-      findProductByName,
-      navigate
-    };
-  }, [cartItems, addToCart, removeFromCart, clearCart, getCartTotal, findProductByName, navigate]);
 
   // Helper to safely extract string from potentially malformed AI args
   const safeString = (val: any): string => {
@@ -114,71 +88,6 @@ const LiveAgent: React.FC = () => {
     }
 
     return `Bilimlar bazasidan topildi:\n${scored.map(item => `- ${item.line}`).join('\n')}`;
-  };
-
-  // --- Tools Implementation ---
-  const handleVoiceOrder = async (itemName: string, quantity: number): Promise<string> => {
-    const { findProductByName, addToCart } = stateRef.current;
-    
-    // Clean string just in case AI adds quotes
-    const cleanName = itemName.replace(/['"]/g, '').trim();
-    if (!cleanName) return "Mahsulot nomini tushunmadim. Qaytarib yuboring?";
-    
-    const product = findProductByName(cleanName);
-    
-    if (product) {
-      addToCart(product, quantity);
-      return `Qo'shildi: ${quantity} ta ${product.name}. Yana biror nima xohlaysizmi?`;
-    } 
-    
-    console.log("Product not found via voice:", cleanName);
-    return `Kechirasiz, menyuda "${cleanName}" topilmadi. Balki boshqa nom bilan atalarsiz?`;
-  };
-
-  const handleVoiceRemove = async (itemName: string, quantity: number): Promise<string> => {
-    const { cartItems, removeFromCart, findProductByName } = stateRef.current;
-
-    if (!itemName) return "Mahsulot nomini tushunmadim.";
-    
-    const search = itemName.toLowerCase().trim();
-    let targetItem = cartItems.find(item => item.name.toLowerCase().includes(search));
-    
-    if (!targetItem) {
-        targetItem = cartItems.find(item => search.includes(item.name.toLowerCase()));
-    }
-
-    if (!targetItem) {
-        const product = findProductByName(itemName);
-        if (product) {
-            targetItem = cartItems.find(i => i.id === product.id);
-        }
-    }
-
-    if (!targetItem) return `Savatchada "${itemName}" topilmadi.`;
-    
-    removeFromCart(targetItem.id, quantity);
-    return `${quantity} ta ${targetItem.name} savatchadan olib tashlandi.`;
-  };
-
-  const handleVoiceClearCart = async (): Promise<string> => {
-    const { clearCart } = stateRef.current;
-    clearCart();
-    return "Savatcha tozalandi.";
-  };
-
-  const handleVoiceGetCart = async (): Promise<string> => {
-    const { cartItems, getCartTotal } = stateRef.current;
-    if (cartItems.length === 0) return "Savatcha bo'sh.";
-    const total = getCartTotal();
-    const itemsList = cartItems.map(i => `${i.quantity}x ${i.name}`).join(", ");
-    return `Savatcha: ${itemsList}. Jami: ${total.toLocaleString()} so'm.`;
-  };
-
-  const handleVoiceConfirm = async (): Promise<string> => {
-    const { cartItems, navigate } = stateRef.current;
-    if (cartItems.length === 0) return "Savatcha bo'sh. Avval mahsulot tanlang.";
-    navigate('/cart');
-    return "To'lov sahifasiga o'tildi.";
   };
 
   const cleanupAudio = useCallback(() => {
@@ -246,8 +155,16 @@ const LiveAgent: React.FC = () => {
       \n\n[MAVJUD MENYU (AVAILABLE MENU)]:
       ${menuList}
       
-      MUHIM: Agar mijoz umumiy nom aytsa (masalan 'Cola'), menyudan eng mosini tanlang (masalan 'Pepsi 0.5L') va o'sha aniq nomni 'addToOrder' ga yuboring.
-      MUHIM 2: Agar savol restoran ma'lumotlari (ish vaqti, manzil mo'ljali, aloqa, to'lov, yetkazish, Wi-Fi, qoida) haqida bo'lsa, avval 'queryKnowledgeBase' funksiyasini chaqiring. Taxmin qilmang, faqat knowledge base ma'lumotiga tayaning.`;
+      MUHIM:
+      - Siz savatga mahsulot qoshmaysiz, olib tashlamaysiz va tolovni boshlamaysiz.
+      - Hech qachon "savatga qoshildi" yoki "buyurtma qabul qilindi" deb aytmang.
+      - Faqat foydalanuvchiga qanday buyurtma berishni qadam-baqadam tushuntiring:
+        1) Menu sahifasiga o'tish.
+        2) Mahsulot tanlab "+" bosish.
+        3) Savatga kirish.
+        4) Manzil va tolov turini tanlash.
+        5) "Buyurtma berish" tugmasini bosish.
+      - Agar savol restoran ma'lumotlari (ish vaqti, manzil mo'ljali, aloqa, to'lov, yetkazish, Wi-Fi, qoida) haqida bo'lsa, avval 'queryKnowledgeBase' funksiyasini chaqiring. Taxmin qilmang.`;
 
       const liveTokenRes = await authFetch('/api/ai/live-token');
       if (!liveTokenRes.ok) {
@@ -265,45 +182,6 @@ const LiveAgent: React.FC = () => {
 
       const tools = [{
         functionDeclarations: [
-          {
-            name: 'addToOrder',
-            description: "Add an item to the cart. IMPORTANT: Try to match the user's request to one of the exact names in the 'AVAILABLE MENU' list before calling this.",
-            parameters: {
-              type: Type.OBJECT,
-              properties: {
-                itemName: { type: Type.STRING, description: "The closest matching product Name from the Menu List" },
-                quantity: { type: Type.NUMBER, description: "Quantity" },
-              },
-              required: ['itemName'],
-            },
-          },
-          {
-            name: 'removeFromOrder',
-            description: "Remove an item from the cart.",
-            parameters: {
-              type: Type.OBJECT,
-              properties: {
-                itemName: { type: Type.STRING },
-                quantity: { type: Type.NUMBER },
-              },
-              required: ['itemName'],
-            },
-          },
-          {
-            name: 'clearOrder',
-            description: "Remove all items from the cart.",
-            parameters: { type: Type.OBJECT, properties: {} },
-          },
-          {
-            name: 'getCartStatus',
-            description: "Get current items and total price in cart.",
-            parameters: { type: Type.OBJECT, properties: {} },
-          },
-          {
-            name: 'confirmOrder',
-            description: "Go to checkout/payment page.",
-            parameters: { type: Type.OBJECT, properties: {} },
-          },
           {
             name: 'queryKnowledgeBase',
             description: "Search the restaurant knowledge base for factual answers (hours, address, delivery, payment, contacts, policies, Wi-Fi). Always use this before answering informational questions.",
@@ -380,18 +258,11 @@ const LiveAgent: React.FC = () => {
                  
                  try {
                    console.log(`Tool Call: ${fc.name}`, args); // Debug log
-                   const nameArg = safeString(args.itemName).trim();
-                   const qtyArg = Number(args.quantity);
-                   const quantity = (Number.isFinite(qtyArg) && qtyArg > 0) ? qtyArg : 1;
-
-                   if (fc.name === 'addToOrder') result = await handleVoiceOrder(nameArg, quantity);
-                   else if (fc.name === 'removeFromOrder') result = await handleVoiceRemove(nameArg, quantity);
-                   else if (fc.name === 'clearOrder') result = await handleVoiceClearCart();
-                   else if (fc.name === 'getCartStatus') result = await handleVoiceGetCart();
-                   else if (fc.name === 'confirmOrder') result = await handleVoiceConfirm();
-                   else if (fc.name === 'queryKnowledgeBase') {
+                   if (fc.name === 'queryKnowledgeBase') {
                      const queryArg = safeString(args.query).trim();
                      result = queryKnowledgeBase(queryArg, knowledgeBaseSnapshot);
+                   } else {
+                     result = "Buyurtma amallari ovozli rejimda bajarilmaydi. Menu va Savat orqali qo'lda bajaring.";
                    }
                  } catch(e) { 
                     console.error("Tool execution error", e); 
