@@ -31,3 +31,5 @@ start-server*.log
 *.njsproj
 *.sln
 *.sw?
+
+.vercel
