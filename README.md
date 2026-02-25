@@ -55,6 +55,18 @@ If frontend is deployed separately (e.g. Vercel), set `VITE_API_BASE_URL=https:/
 - Payment callback API: `POST /api/payment/paynet/callback`
 - E2E test: `npm run test:e2e`
 
+## CI/CD (GitHub Actions)
+
+`main` branch uchun `.github/workflows/ci-cd.yml` qo'shildi:
+- Typecheck (`npx tsc --noEmit`)
+- Build (`npm run build`)
+- E2E (`npm run test:e2e`)
+- Docker image build (GHCR ga push: faqat `main` pushda)
+- Vercel deploy (faqat quyidagi secretlar bo'lsa):
+  - `VERCEL_TOKEN`
+  - `VERCEL_ORG_ID`
+  - `VERCEL_PROJECT_ID`
+
 ## Telegram Bot + Mini App
 
 `server.ts` endi Telegram botni ham qo'llab-quvvatlaydi:
