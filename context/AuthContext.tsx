@@ -1,6 +1,6 @@
 ﻿import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react';
 import { User, Address } from '../types';
-import { apiUrl } from '../utils/api';
+import { apiUrl, withApiHeaders } from '../utils/api';
 
 type LoginResult = { ok: true } | { ok: false; error: string };
 
@@ -87,7 +87,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const authFetch = useCallback(
     async (input: RequestInfo | URL, init: RequestInit = {}) => {
-      const headers = new Headers(init.headers ?? {});
+      const headers = withApiHeaders(init.headers);
       if (token) headers.set('Authorization', `Bearer ${token}`);
 
       const requestInput =
@@ -113,7 +113,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       try {
         const res = await fetch(apiUrl('/api/auth/login'), {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: withApiHeaders({ 'Content-Type': 'application/json' }),
           body: JSON.stringify({ name, phone, adminCode }),
         });
 
@@ -145,7 +145,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       try {
         const res = await fetch(apiUrl('/api/auth/telegram'), {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: withApiHeaders({ 'Content-Type': 'application/json' }),
           body: JSON.stringify({ initData, adminCode }),
         });
 
@@ -179,7 +179,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
       const res = await authFetch('/api/auth/address', {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: withApiHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ address }),
       });
 
